@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using Dalamud.Plugin.Services;
 using Dalamud.IoC;
 using Lumina.Excel.Sheets;
+using Dalamud.Game.Chat;
 
 namespace MapLinker
 {
@@ -23,6 +24,7 @@ namespace MapLinker
         public static IDalamudPluginInterface Interface { get; private set; }
         public ICommandManager CommandManager { get; private set; }
         public IDataManager DataManager { get; private set; }
+        public IObjectTable ObjectTable { get; private set; }
         public IClientState ClientState { get; private set; }
         public ITargetManager TargetManager { get; private set; }
         public IFramework Framework { get; private set; }
@@ -32,9 +34,7 @@ namespace MapLinker
         public static IPluginLog PluginLog { get; private set; }
 
         public Configuration Config { get; private set; }
-        public IPlayerCharacter LocalPlayer => ClientState.LocalPlayer;
-        public bool IsLoggedIn => LocalPlayer != null;
-        //public bool IsInHomeWorld => LocalPlayer?.CurrentWorld == LocalPlayer?.HomeWorld;
+        public IPlayerCharacter LocalPlayer => ObjectTable.LocalPlayer;
 
         public static object PluginInterface { get; internal set; }
 
@@ -57,7 +57,8 @@ namespace MapLinker
             IFramework framework,
             IGameGui gameGui,
             ITargetManager targetManager,
-            IPluginLog pluginLog)
+            IPluginLog pluginLog,
+            IObjectTable objectTable)
         {
             Interface = pluginInterface;
             ClientState = clientState;
@@ -67,6 +68,8 @@ namespace MapLinker
             DataManager = data;
             ChatGui = chat;
             GameGui = gameGui;
+            PluginLog = pluginLog;
+            ObjectTable = objectTable;
             Aetherytes = DataManager.GetExcelSheet<Aetheryte>(ClientState.ClientLanguage);
             AetherytesMap = DataManager.GetSubrowExcelSheet<MapMarker>(ClientState.ClientLanguage);
             Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -75,7 +78,6 @@ namespace MapLinker
                 HelpMessage = "/maplink - open the maplink panel."
             });
             Gui = new PluginUi(this);
-            PluginLog = pluginLog;
             ChatGui.ChatMessage += Chat_OnChatMessage;
         }
         public void CommandHandler(string command, string arguments)
@@ -260,12 +262,18 @@ namespace MapLinker
                     PluginLog.Information(infoMsg);
                 }
             }
-            
+
 
         }
 
-        private void Chat_OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+        private void Chat_OnChatMessage(IHandleableChatMessage chatMessage)
         {
+            //XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled
+            XivChatType type = chatMessage.LogKind;
+            int timestamp = chatMessage.Timestamp;
+            var sender = chatMessage.Sender;
+            var message = chatMessage.Message;
+
             if (!Config.Recording) return;
             bool hasMapLink = false;
             float coordX = 0;
@@ -304,7 +312,8 @@ namespace MapLinker
                 bool filteredOut = false;
                 if (sender.TextValue.ToLower() == "sonar")
                     filteredOut = true;
-                bool alreadyInList = Config.MapLinkMessageList.Any(w => {
+                bool alreadyInList = Config.MapLinkMessageList.Any(w =>
+                {
                     bool sameText = w.Text == newMapLinkMessage.Text;
                     var timeoutMin = new TimeSpan(0, Config.FilterDupTimeout, 0);
                     if (newMapLinkMessage.RecordTime < w.RecordTime + timeoutMin)
